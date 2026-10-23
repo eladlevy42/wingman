@@ -1,0 +1,48 @@
+name: Feature / Story
+description: New functionality to build
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: What do we want to build?
+      placeholder: "e.g. Add a profile completion screen after the interview"
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why? (motivation / user value)
+      placeholder: "e.g. Users need to confirm their profile before matching begins"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must be true for this to be done?
+      placeholder: |
+        - [ ] User sees a summary of their profile after interview
+        - [ ] User can confirm or restart the interview
+        - [ ] Profile status is set to COMPLETED in the DB
+    validations:
+      required: true
+
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options:
+        - "Milestone 1 – Registration"
+        - "Milestone 2 – Interview Agent"
+        - "Milestone 3 – Matching Engine"
+        - "Milestone 4 – Eval System"
+        - "No milestone"
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes / open questions
+      description: Anything uncertain, design decisions, or dependencies

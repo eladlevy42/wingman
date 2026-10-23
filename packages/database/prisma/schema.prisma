@@ -1,0 +1,453 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./wingman.db"
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  name            String
+  phone           String
+  gender          String
+  // "IDLE" | "WAITING" | "MATCHED" | "CHOOSING_TIMES" | "DATE_ASSIGNED" |
+  // "REJECTED" — position in the matching engine after onboarding completes.
+  // See docs/adr/0002. Issue #35 builds on this column; DATE_ASSIGNED added by
+  // #57 (Blind Date resolver); CHOOSING_TIMES added by #248 (choose-your-times).
+  matchingState   String   @default("IDLE")
+  // The account login password (#277), set when signing up with email. Stored
+  // only as a bcrypt hash — never plaintext. Nullable: Google/Microsoft accounts
+  // and seeded eval users have none.
+  passwordHash          String?
+  // University verification (#275). Set on the "Verify Your University" step
+  // after sign-up: universityEmail must be a recognised university address
+  // (currently Tel Aviv University only), studentId is captured, and the separate
+  // university password is stored only as a bcrypt hash. All nullable: accounts
+  // that haven't verified yet (or seeded eval users) have none.
+  universityEmail       String?
+  studentId             String?
+  universityPasswordHash String?
+  createdAt       DateTime @default(now())
+  // Set explicitly every time matchingState transitions to WAITING — initial
+  // Phase-2 completion (persistWantedProfile.ts), a rejected match
+  // (decision.service.ts, orchestration.service.ts), or a debriefed date
+  // (followup.service.ts). createdAt is account-creation time and never
+  // updates on re-entry, so it's not a valid proxy for time-in-queue once a
+  // user has cycled through WAITING more than once (#343 review follow-up).
+  // The orchestration sweep orders by this column so the longest-waiting user
+  // gets first pick each tick.
+  enteredWaitingAt DateTime @default(now())
+  // JSON array of 5 designed (non-random) user IDs — ground truth for Eval Track 1
+  // precision@5. See issue #31 and docs/adr for eval seeding.
+  expectedMatches String?
+  // Base64 data URL of the real photo requested by Barney right after Phase 2
+  // completes (#200, docs/adr/0016). Nullable — seeded eval users and anyone
+  // who hasn't reached that step yet have none. Deliberately NOT exposed by
+  // UserResponseSchema/GET /api/users/:id, which has no ownership check —
+  // only a future match-gated read (#58) may return it.
+  photoUrl        String?
+
+  profile         Profile?
+  wantedProfile   WantedProfile?
+  matchesAsA      Match[]          @relation("MatchUserA")
+  matchesAsB      Match[]          @relation("MatchUserB")
+  goldenPairsAsA  GoldenPair[]     @relation("GoldenPairUserA")
+  goldenPairsAsB  GoldenPair[]     @relation("GoldenPairUserB")
+  seedTranscripts SeedTranscript[]
+  followUps       FollowUp[]
+  feedbackRounds  FeedbackRound[]
+  matchAttempts   MatchAttempt[]
+  notifications   Notification[]
+  pushTokens      PushToken[]
+}
+
+model Profile {
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  rawTranscript  String  @default("")
+  structuredData String?
+  // "INCOMPLETE" | "COMPLETED"
+  status         String  @default("INCOMPLETE")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// See docs/adr/0005-wanted-profile-persistence.md — row existence (not a column)
+// signals Phase 2 completion, per docs/adr/0002.
+model WantedProfile {
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  // The Phase-2 interview as it happened, recorded by InterviewEngine (#488).
+  rawTranscript  String  @default("")
+  structuredData String?
+  // "INCOMPLETE" | "COMPLETED"
+  status         String  @default("INCOMPLETE")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Match {
+  id              String   @id @default(uuid())
+  userAId         String
+  userBId         String
+  // "PENDING" | "MATCHED" | "REJECTED"
+  status          String   @default("PENDING")
+  // "NEGOTIATED" | "FORCED" (#345) — how this Match came to be. NEGOTIATED is a
+  // genuine agent negotiation that cleared the mutual threshold; FORCED is the
+  // best-available fallback (forceMatchAndPersist) pairing the closest fit
+  // without clearing it. First-class so forced matches are queryable rather
+  // than inferred from the fragile scoreA=scoreB=6 tuple. Defaults NEGOTIATED
+  // so every existing 6/6 negotiated match keeps the correct label.
+  matchType       String   @default("NEGOTIATED")
+  // Independent 1-10 scores from each agent (ADR 0007). Non-nullable: #42's
+  // match.service.ts is the only writer today and always has both scores by
+  // the time it creates a Match record. See docs/adr/0010.
+  scoreA          Int
+  scoreB          Int
+  deliberationLog String?
+  rationale       String?
+  createdAt       DateTime @default(now())
+  // "yeah" | "nah" — each user's post-pitch decision (#56)
+  decisionA       String?
+  decisionB       String?
+  decidedAtA      DateTime?
+  decidedAtB      DateTime?
+  // Blind Date fields (#57, docs/adr/0012) — populated together, once both
+  // users have picked overlapping times. Null means no date is scheduled yet.
+  venue           String?
+  dateTime        DateTime?
+  // Choose-your-times step (#248) — when both users say yeah the resolver moves
+  // the match to CHOOSING_TIMES and randomly picks one participant as the
+  // proposer (proposerId). candidateSlots is the shared slate of offered ISO
+  // datetimes the proposer picks from; proposedSlots is the up-to-3 the proposer
+  // picked, which the OTHER user (the chooser) then picks one of to set
+  // venue/dateTime. All null until that phase.
+  candidateSlots  String?
+  proposerId      String?
+  proposedSlots   String?
+
+  // Explicitly Restrict, not the implicit default: a Match is the record of
+  // something that happened to two people, so deleting one account must never
+  // take it with them. User deletion repoints the departing side at the
+  // tombstone user first (docs/adr/0040) — this constraint is what makes a
+  // deletion path that forgets to do so fail loudly instead of erasing the
+  // surviving participant's history.
+  userA User @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Restrict)
+  userB User @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Restrict)
+  followUps      FollowUp[]
+  feedbackRounds FeedbackRound[]
+}
+
+// Tracks one user's post-match follow-up relative to their auto-assigned
+// Blind Date (issue #67, docs/adr/0012). One row per user per Match — both
+// users move through the same states independently.
+model FollowUp {
+  id      String @id @default(uuid())
+  userId  String
+  matchId String
+  // "AWAITING_DATE" | "DATE_PASSED" | "DEBRIEFED"
+  state   String @default("AWAITING_DATE")
+
+  // Cascade: this row is one user's own progress through their own date, with
+  // no content the other participant shares. The other user's FollowUp for the
+  // same Match is a separate row and is untouched (docs/adr/0040).
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([userId, matchId])
+}
+
+// One user's structured takeaway from their post-match debrief (issue #71,
+// #74). rawTranscript is the reconstructed debrief conversation; delta is a
+// JSON-encoded FeedbackDelta (packages/shared). createdAt lets #76's merge
+// step apply compromiseUpdates in chronological order across a user's rounds.
+model FeedbackRound {
+  id            String   @id @default(uuid())
+  userId        String
+  matchId       String
+  rawTranscript String
+  delta         String
+  createdAt     DateTime @default(now())
+
+  // Cascade: rawTranscript and delta are the user's own words about their own
+  // date. Erasing the account erases them; the other participant's round for
+  // the same Match is a separate row and survives (docs/adr/0040).
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([userId, matchId])
+}
+
+// Ground truth for Eval Track 2 (agent score correlation) — designed pairs
+// with a known expected compatibility score. See issue #32 and
+// docs/PRODUCT_SPEC.md section 11.
+model GoldenPair {
+  id          String   @id @default(uuid())
+  userAId     String
+  userBId     String
+  goldenScore Int
+  // "compatible" | "incompatible" | "borderline"
+  category    String
+  createdAt   DateTime @default(now())
+
+  // Cascade on both sides: a golden pair is eval ground truth, not anyone's
+  // date history — half a pair is a broken fixture, not a preserved record.
+  userA User @relation("GoldenPairUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("GoldenPairUserB", fields: [userBId], references: [id], onDelete: Cascade)
+}
+
+// Ground truth for Eval Track 3 (schema extraction accuracy) — a realistic
+// interview transcript paired with the UserProfile a correct extraction
+// would produce. See issue #33.
+model SeedTranscript {
+  id                        String   @id @default(uuid())
+  userId                    String
+  rawTranscript             String
+  expectedStructuredProfile String
+  createdAt                 DateTime @default(now())
+
+  // Cascade: an eval fixture transcript, and the user's own words either way.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Stores the outcome of each eval run so the dashboard (#88, #250) can fetch
+// past results without re-running the (slow, side-effecting) track runner on
+// every page load. See issue #87.
+model EvalRun {
+  id         String   @id @default(uuid())
+  // 1 | 2 | 3 — which eval track this run belongs to
+  track      Int
+  // "running" | "completed" | "failed" | "stopped" (#250)
+  status     String   @default("completed")
+  // JSON-encoded EvalRunConfig snapshot (count/turns/seed/models/budget) — #250
+  config     String   @default("{}")
+  // JSON-encoded Track1Result | Track2Result | Track3Result | null (null while running/failed)
+  result     String?
+  // Total Anthropic API cost across the run, in USD — #250
+  costUsd    Float    @default(0)
+  durationMs Int      @default(0)
+  // Set only when status is "failed"
+  error      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([track, createdAt])
+}
+
+// One execution of matchOneUser (orchestration.service.ts) for `userId` — the
+// deterministic-filter stage's full scored candidate pool, plus which of
+// those candidates got negotiated and how each negotiation ended. Persisted
+// so the dev-only match pipeline page (#253) can show a live in-progress
+// attempt (status "RUNNING") or browse history, including rejected/exhausted
+// attempts — not just the currently active Match. Created at the start of
+// matchOneUser (before any negotiation), updated once the loop finishes.
+model MatchAttempt {
+  id     String @id @default(uuid())
+  userId String
+  // "RUNNING" | "MATCHED" | "EXHAUSTED" | "FORCED" | "FAILED". EXHAUSTED: walked
+  // every candidate, none matched, or there were no candidates to walk at all.
+  // FORCED: the best-available fallback paired the user instead (#315). FAILED:
+  // either a negotiation turn threw mid-attempt (#339) or an unexpected error
+  // threw outside a negotiation turn (#378) — see failureLog/failureError/failureReason.
+  status String @default("RUNNING")
+  // JSON-encoded CandidateScore[] (packages/shared) — every WAITING candidate
+  // considered, with hard-criteria pass/fail + reason, hobby overlap score,
+  // and shortlist rank (null if not in the top 5 negotiated).
+  candidateScores String
+  // JSON-encoded string[] of Match.id, in negotiation order — join against
+  // Match for each one's deliberationLog/rationale/scoreA/scoreB/status.
+  matchIds        String    @default("[]")
+  // JSON-encoded NegotiationMessage[] — the partial transcript built before a
+  // FAILED attempt's negotiation turn threw. Unconditionally "[]" for the
+  // unexpected-error case (#378), since no turn ever ran. Null for every other
+  // status. #339.
+  failureLog      String?
+  // The thrown error's message, for a FAILED attempt. Null otherwise. #339.
+  failureError    String?
+  // "negotiation_turn" | "unexpected_error" (packages/shared) — which FAILED
+  // sub-case this row is, so the audit page can tell them apart. Null for
+  // rows persisted before #378, which predate the distinction and were always
+  // "negotiation_turn".
+  failureReason   String?
+  // "sweep_budget" — set when the shortlist walk stopped early because
+  // SWEEP_BUDGET_USD was hit mid-attempt (#307), so the audit page can tell
+  // "stopped early, budget-capped" apart from a genuine EXHAUSTED (walked the
+  // whole shortlist). Null when the walk ran uninterrupted.
+  stoppedReason   String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  // Restrict, like Match: attempt history is metadata only (scores, ranks,
+  // outcomes) and is repointed at the tombstone user on deletion rather than
+  // erased, so the matching engine's own record of what it did stays whole
+  // (docs/adr/0040).
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+}
+
+// One sent notification (#357). Persistence is the real delivery channel: the
+// web app polls GET /api/users/:id/notifications?since=... and feeds new rows
+// into its banner/badge store. The legacy POST to the MSW mock URL only ever
+// worked inside test pages (service workers can't see cross-process HTTP), so
+// without these rows no notification could reach a real browser at all.
+model Notification {
+  id      String @id @default(uuid())
+  userId  String
+  // NotificationType (packages/shared) — MATCH_FOUND | DATE_ASSIGNED |
+  // PRE_DATE_REMINDER | DEBRIEF_NUDGE | CHECKIN_PROMPT
+  type    String
+  // JSON-encoded Record<string, unknown> payload (e.g. { matchId })
+  payload String @default("{}")
+  createdAt DateTime @default(now())
+
+  // Cascade: a notification is addressed to one user and to nobody else.
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// One meaningful user action or state transition (docs/adr/0038, #552).
+// Append-only: nothing updates or reads these rows on the request path — the
+// readers are the /dev/audit page (slice 4) and ad-hoc statistics queries.
+// `type` is an AuditEventType (packages/shared/src/schemas/audit.ts); `payload`
+// is the JSON-encoded, schema-validated metadata for that type — validation
+// happens in audit.service.ts BEFORE the write, so a row here always parsed.
+// userId is nullable for pre-auth events, which carry anonSessionId instead —
+// exactly one of the two is ever set, never both (the never-linked guarantee).
+// No User relation on purpose: erasure is `deleteMany({ where: { userId } })`,
+// and a foreign key would tie these rows' lifetime to the User row instead.
+model AuditEvent {
+  id            String   @id @default(uuid())
+  type          String
+  userId        String?
+  anonSessionId String?
+  // Links this event to every AgentCall the same request caused — generated
+  // once per request by middleware/correlationId.ts.
+  correlationId String
+  payload       String   @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+// One row per agent call — every agent in the app reaches the API through
+// agentSdkClient's runAgentQuery or the warm agentSdkSession, and both write
+// here (#553), so this table is the complete record of agent activity and
+// spend. Same no-relation reasoning as AuditEvent.
+model AgentCall {
+  id            String   @id @default(uuid())
+  correlationId String
+  // Null for calls with no user in scope (eval runs, judges).
+  userId        String?
+  // Which agent ran (e.g. "barney", "negotiation", "evalJudge").
+  actor         String
+  // Why it ran (e.g. "interview_turn", "negotiation_turn").
+  purpose       String
+  model         String
+  costUsd       Float
+  durationMs    Int
+  // JSON-encoded string[] of tool names invoked — names only, never arguments.
+  toolNames     String   @default("[]")
+  retryCount    Int      @default(0)
+  // "ok" | "failed" (transient retries exhausted) | "auth_error" |
+  // "sdk_unavailable" — see AgentCallOutcomeSchema in packages/shared.
+  outcome       String
+  // A short, content-free failure code (class name + the SDK's own error code)
+  // — never the error's free text. See describeAgentError in agentSdkClient.
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+// Per-day counters that outlive the raw rows they were computed from (#555).
+// The 90-day sweep deletes AuditEvent and AgentCall rows; without this,
+// month-over-month statistics would be deleted along with them. The rollup is
+// the long-lived artefact and the raw row is not (docs/adr/0038).
+model AuditRollup {
+  id   String @id @default(uuid())
+  // The UTC day summarised, as YYYY-MM-DD. A string rather than a DateTime so
+  // the day is the identity — no timezone can shift which bucket a row is in.
+  day  String
+  // "event" | "agent_call"
+  kind String
+  // The bucket's identity within (day, kind): the AuditEventType for an event
+  // row, "<actor>|<model>" for an agent-call row. Denormalised into the
+  // columns below for reading; kept as one NON-NULL string because SQLite
+  // treats NULLs in a unique index as distinct, so a unique index over the
+  // nullable columns would let duplicate buckets through.
+  bucket     String
+  eventType  String?
+  actor      String?
+  model      String?
+  count      Int
+  // Agent spend for the bucket. 0 on event rows.
+  costUsd    Float    @default(0)
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([day, kind, bucket])
+  @@index([day])
+}
+
+// One Expo push token per installed app per user (#477). The device is the
+// delivery address for MATCH_FOUND / DATE_ASSIGNED / DEBRIEF_NUDGE while the
+// app is closed — the Notification rows above stay the source of truth and
+// keep working on their own, so a user with no PushToken simply sees their
+// notifications on next open rather than losing them.
+model PushToken {
+  id     String @id @default(uuid())
+  userId String
+  // Expo push token, e.g. "ExponentPushToken[xxxxxxxx]". Unique across the
+  // whole table, not per user: a physical device hands the same token to
+  // whoever signs in on it, so scoping uniqueness to userId would let one
+  // handset accumulate a row per account and then deliver every one of those
+  // users' notifications to whoever is currently signed in.
+  token  String @unique
+  // "ios" | "android". Stored for pruning and for debugging delivery failures
+  // that only affect one platform; the Expo push API itself needs no platform
+  // hint.
+  platform String
+  createdAt DateTime @default(now())
+  // Bumped every time the token is re-registered (app launch / re-login), so a
+  // stale row is identifiable without asking Expo.
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// One in-progress engine-mode interview session (#545). The Barney session
+// registry holds live InterviewEngine instances in process memory; this row is
+// the durable copy, upserted after every turn and deleted on completion, so an
+// api restart rehydrates a mid-interview session instead of 404ing it and
+// silently discarding every answer given so far. Deliberately no relation to
+// User: this is a cache-shaped row keyed by the ephemeral sessionId, cleaned
+// up by TTL on read, and a dangling userId only ever means "won't rehydrate".
+model InterviewSessionSnapshot {
+  // The Barney sessionId the client holds — the rehydration lookup key.
+  id     String @id
+  userId String
+  // InterviewMode — interview_self | interview_wants
+  mode   String
+  // JSON-encoded EngineSnapshot (packages/shared/src/schemas/interviewSnapshot)
+  state  String
+  // JSON-encoded SnapshotLastTurn — the last completed turn's id and result,
+  // so the client's turnId-replay dedup survives a restart instead of running
+  // the retried answer against the next question.
+  lastTurn String?
+  // Drives the TTL check on load — a snapshot idle past the session TTL is as
+  // dead as an evicted in-memory session.
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}

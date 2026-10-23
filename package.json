@@ -1,0 +1,50 @@
+{
+  "name": "wingman-poc",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm run check:schema-sync && turbo run dev",
+    "build": "pnpm run check:schema-sync && turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "eval": "turbo run dev --filter=@wingman/eval-dashboard --filter=@wingman/api",
+    "check:schema-sync": "pnpm --filter @wingman/database run check:schema-sync",
+    "db:generate": "turbo run db:generate --filter=@wingman/database",
+    "db:push": "turbo run db:push --filter=@wingman/database",
+    "db:seed": "turbo run db:seed --filter=@wingman/database",
+    "db:studio": "turbo run db:studio --filter=@wingman/database",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "turbo run typecheck",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.8.4",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.61.1"
+  },
+  "lint-staged": {
+    "**/*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "**/*.{js,jsx,json,md,yml,yaml}": "prettier --write"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@9.15.9"
+}

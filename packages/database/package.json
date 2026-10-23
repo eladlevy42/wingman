@@ -1,0 +1,33 @@
+{
+  "name": "@wingman/database",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "postinstall": "prisma generate && tsx scripts/writeSchemaHash.ts",
+    "db:generate": "prisma generate && tsx scripts/writeSchemaHash.ts",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "db:seed": "tsx src/seed.ts",
+    "seed:audit-evidence": "tsx scripts/seedAuditEvidence.ts",
+    "check:schema-sync": "tsx scripts/checkSchemaSync.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.14.0",
+    "@wingman/shared": "workspace:^"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^10.5.0",
+    "@types/node": "^20.14.11",
+    "prisma": "^5.14.0",
+    "tsx": "^4.16.2",
+    "typescript": "^5.4.0",
+    "vitest": "^3"
+  }
+}

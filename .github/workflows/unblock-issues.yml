@@ -1,0 +1,202 @@
+name: Auto-unblock issues
+
+on:
+  issues:
+    types: [closed, edited]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: unblock-issues
+
+jobs:
+  unblock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const changes = [];
+
+            const closedIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'closed',
+            });
+            const closedNumbers = new Set(closedIssues.map((issue) => issue.number));
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+            });
+            const openIssuesNoPRs = openIssues.filter((issue) => !issue.pull_request);
+
+            const CHILD_SECTION_RE = /## Child Issues\n([\s\S]*?)(\n##|$)/i;
+            const BLOCKED_BY_RE = /Blocked by ((?:#\d+\s*)+)/i;
+
+            // Close epic issues whose child checklist is fully closed.
+            // Wrapped in a fixpoint loop: repeat full passes until one closes
+            // nothing. This converges regardless of iteration order and handles
+            // arbitrarily nested epics (child epic → parent epic → grandparent) in
+            // a single run, since the bot's own closes don't re-trigger the
+            // workflow (GITHUB_TOKEN actions are suppressed by GitHub).
+            const warnedNoChildSection = new Set();
+            let closedSomething = true;
+            while (closedSomething) {
+              closedSomething = false;
+              for (const issue of openIssuesNoPRs) {
+                if (closedNumbers.has(issue.number)) {
+                  continue; // already closed earlier this run
+                }
+                try {
+                  const childSection = issue.body?.match(CHILD_SECTION_RE);
+                  if (!childSection) {
+                    // Heuristic: title looks like an epic ([E<n>] or [E<n>-S<n>]) but
+                    // has no parseable child checklist — surface it once instead of
+                    // skipping silently (guarded so the fixpoint loop doesn't spam).
+                    if (/^\[E\d+(-S\d+)?\]/.test(issue.title) && !warnedNoChildSection.has(issue.number)) {
+                      warnedNoChildSection.add(issue.number);
+                      core.warning(
+                        `Issue #${issue.number} looks like an epic but has no '## Child Issues' section matching the expected format`,
+                      );
+                    }
+                    continue;
+                  }
+
+                  const childNumbers = [...childSection[1].matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+                  if (childNumbers.length === 0) {
+                    continue;
+                  }
+
+                  const allChildrenClosed = childNumbers.every((n) => closedNumbers.has(n));
+                  if (!allChildrenClosed) {
+                    continue;
+                  }
+
+                  await github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    state: 'closed',
+                  });
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body: `Closing — all child issues (${childNumbers.map((n) => `#${n}`).join(', ')}) are complete.`,
+                  });
+
+                  closedNumbers.add(issue.number);
+                  closedSomething = true;
+                  changes.push(`Closed epic #${issue.number} "${issue.title}" (all children complete)`);
+                } catch (error) {
+                  core.warning(`Failed to check epic issue #${issue.number}: ${error.message}`);
+                }
+              }
+            }
+
+            // Epics closed above no longer belong in the open-issue working set.
+            const stillOpen = openIssuesNoPRs.filter((issue) => !closedNumbers.has(issue.number));
+
+            const isBlockedLabeled = (issue) =>
+              issue.labels.some((label) => (typeof label === 'string' ? label : label.name) === 'blocked');
+
+            // Add the 'blocked' label back to issues whose body references a still-open
+            // blocker but that don't currently carry the label (e.g. added by hand).
+            await Promise.all(
+              stillOpen
+                .filter((issue) => !isBlockedLabeled(issue))
+                .map(async (issue) => {
+                  try {
+                    const match = issue.body?.match(BLOCKED_BY_RE);
+                    if (!match) {
+                      return;
+                    }
+
+                    const blockerNumbers = [...match[1].matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+                    const openBlockers = blockerNumbers.filter((n) => !closedNumbers.has(n));
+                    if (openBlockers.length === 0) {
+                      return;
+                    }
+
+                    await github.rest.issues.addLabels({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      labels: ['blocked'],
+                    });
+                    changes.push(
+                      `Re-added 'blocked' label to #${issue.number} (still blocked by ${openBlockers.map((n) => `#${n}`).join(', ')})`,
+                    );
+                  } catch (error) {
+                    core.warning(`Failed to check missing blocked label on #${issue.number}: ${error.message}`);
+                  }
+                }),
+            );
+
+            const blockedIssues = stillOpen.filter(isBlockedLabeled);
+
+            await Promise.all(
+              blockedIssues.map(async (issue) => {
+                try {
+                  const match = issue.body?.match(BLOCKED_BY_RE);
+                  if (!match) {
+                    core.warning(
+                      `Issue #${issue.number} has the 'blocked' label but no 'Blocked by #N' reference in its body`,
+                    );
+                    return;
+                  }
+
+                  const blockerNumbers = [...match[1].matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+                  const openBlockers = blockerNumbers.filter((n) => !closedNumbers.has(n));
+
+                  if (openBlockers.length === 0) {
+                    await github.rest.issues.removeLabel({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      name: 'blocked',
+                    });
+                    await github.rest.issues.addLabels({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      labels: ['ready-for-agent'],
+                    });
+                    changes.push(`Promoted #${issue.number} to 'ready-for-agent' (all blockers closed)`);
+                    return;
+                  }
+
+                  const commentBody = `Still blocked by: ${openBlockers.map((n) => `#${n}`).join(', ')}`;
+                  const comments = await github.paginate(github.rest.issues.listComments, {
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                  });
+                  const alreadyPosted = comments.some((comment) => comment.body === commentBody);
+                  if (!alreadyPosted) {
+                    await github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      body: commentBody,
+                    });
+                  }
+                } catch (error) {
+                  core.warning(`Failed to process issue #${issue.number}: ${error.message}`);
+                }
+              }),
+            );
+
+            if (changes.length > 0) {
+              await core.summary
+                .addHeading('Auto-unblock issues — changes made', 3)
+                .addList(changes)
+                .write();
+            } else {
+              await core.summary.addRaw('Auto-unblock issues — no changes needed this run.').write();
+            }

@@ -1,0 +1,55 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Firebase service account key (#480). This one is a genuine private key: it
+# authorises sending push to every device registered to the project, and is
+# uploaded to EAS rather than read by the app. Firebase names the download
+# <project>-firebase-adminsdk-<hash>.json.
+*firebase-adminsdk*.json
+service-account*.json
+
+# NOTE: google-services.json is deliberately NOT ignored. It is required at
+# build time by EAS, which builds from a clone of this repo — ignoring it
+# produces an app that mints push tokens and then never receives anything.
+# It is also not a secret: it is packaged inside the apk, so anyone with the
+# app has it. The Android api key it carries is restricted by package name and
+# signing certificate, which is the control that actually matters.
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android

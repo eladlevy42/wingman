@@ -1,0 +1,40 @@
+name: Task
+description: A concrete piece of work (chore, refactor, config, infra)
+labels: ["needs-triage"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: What needs to be done?
+      placeholder: "e.g. Set up Prisma schema with User and Profile models"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      placeholder: "Describe the work and any constraints"
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      placeholder: |
+        - [ ] Schema pushed to SQLite
+        - [ ] Prisma client generated
+    validations:
+      required: true
+
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options:
+        - "Milestone 1 – Registration"
+        - "Milestone 2 – Interview Agent"
+        - "Milestone 3 – Matching Engine"
+        - "Milestone 4 – Eval System"
+        - "No milestone"

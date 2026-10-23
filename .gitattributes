@@ -1,0 +1,14 @@
+# Normalize line endings to LF for text files, regardless of platform or
+# core.autocrlf. Combined with the `git add --renormalize .` pass in this
+# same commit, this keeps stored blobs and Windows checkouts consistent
+# with Linux CI so `pnpm format:check` passes everywhere.
+* text=auto eol=lf
+
+# Binary files: never run line-ending conversion or diff them as text.
+*.png -text
+*.gif -text
+*.jpg -text
+*.jpeg -text
+*.ico -text
+*.db -text
+*.db-journal -text

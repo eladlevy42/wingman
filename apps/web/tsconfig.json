@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      // apps/mobile (React 19) puts @types/react@19 in pnpm's hoisted virtual
+      // store, where TypeScript finds it while resolving `import ... from
+      // "react"` inside third-party .d.ts files such as lucide-react's — which
+      // then fails to typecheck against this app's React 18. Pinning the two
+      // type packages here forces every "react" resolution in this program to
+      // apps/web's own copy. Remove once web and mobile share a React major.
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
+    }
+  },
+  "include": ["src"]
+}

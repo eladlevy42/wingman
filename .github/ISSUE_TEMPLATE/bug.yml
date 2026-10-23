@@ -1,0 +1,47 @@
+name: Bug Report
+description: Something is broken
+labels: ["bug", "needs-triage"]
+body:
+  - type: input
+    id: summary
+    attributes:
+      label: What happened?
+      placeholder: "e.g. Interview agent crashes when user submits an empty message"
+    validations:
+      required: true
+
+  - type: input
+    id: expected
+    attributes:
+      label: What should have happened?
+      placeholder: "e.g. Agent should respond with a follow-up question"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to /chat
+        2. Submit empty message
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 – App is broken / data loss
+        - P1 – Major feature broken
+        - P2 – Minor / cosmetic
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, error messages
