@@ -4,17 +4,52 @@ Wingman is a proof-of-concept dating app where people do not browse profiles. An
 
 ## Screenshots
 
-![Splash](docs/screenshots/splash.png)
-
-![Interview](docs/screenshots/interview-chat.png)
-
-![Match pitch](docs/screenshots/match-pitch.png)
-
-![Yeah or nah](docs/screenshots/mobile-decision.png)
-
-![Debrief](docs/screenshots/debrief.png)
-
-![Blind date](docs/screenshots/blind-date.png)
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/01-register.png" alt="Sign up" width="200" />
+      <br />
+      Sign up
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/02-interview-start.png" alt="AI interview" width="200" />
+      <br />
+      AI interview
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/03-interview-midway.png" alt="Interview in progress" width="200" />
+      <br />
+      Interview in progress
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/04-match-reveal.png" alt="Match reveal" width="200" />
+      <br />
+      Match reveal
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/05-pitch-chat.png" alt="Ask 3 questions" width="200" />
+      <br />
+      Ask 3 questions
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/06-decision.png" alt="Yeah / Nah" width="200" />
+      <br />
+      Yeah / Nah
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/07-choose-times.png" alt="Pick times" width="200" />
+      <br />
+      Pick times
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/08-blind-date.png" alt="It's a date" width="200" />
+      <br />
+      It's a date
+    </td>
+  </tr>
+</table>
 
 ## Status
 
